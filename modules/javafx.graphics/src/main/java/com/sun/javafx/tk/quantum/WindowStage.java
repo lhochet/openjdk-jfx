@@ -176,12 +176,32 @@ class WindowStage extends GlassStage {
                             }
                             // fall through
                         case DECORATED:
+                        case APPBAR_RIGHT:
+                        case APPBAR_TOP:
+                        case APPBAR_LEFT:
+                        case APPBAR_BOTTOM:
                             windowMask |=
                                 Window.TITLED | Window.CLOSABLE |
                                 Window.MINIMIZABLE | Window.MAXIMIZABLE;
                             if (ownerWindow != null || modality != Modality.NONE) {
                                 windowMask &=
                                     ~(Window.MINIMIZABLE | Window.MAXIMIZABLE);
+                            }
+                            switch (style) {
+                                case APPBAR_RIGHT:
+                                    windowMask |= Window.APP_BAR_RIGHT;
+                                    break;
+                                case APPBAR_TOP:
+                                    windowMask |= Window.APP_BAR_TOP;
+                                    break;
+                                case APPBAR_LEFT:
+                                    windowMask |= Window.APP_BAR_LEFT;
+                                    break;
+                                case APPBAR_BOTTOM:
+                                    windowMask |= Window.APP_BAR_BOTTOM;
+                                    break;
+                                default:
+                                    // do nothing
                             }
                             resizable = true;
                             break;
