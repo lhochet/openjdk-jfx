@@ -66,5 +66,29 @@ public enum StageStyle {
      * NOTE: To see the effect, the {@code Scene} covering the {@code Stage} should have {@code Color.TRANSPARENT}
      * @since JavaFX 8.0
      */
-    UNIFIED
+    UNIFIED,
+    
+    /**
+     * Defines a {@code Stage} style with a Windows AppBar that is anchored to the Right edge.
+     * Only works on MS Windows.
+     */
+    APPBAR_RIGHT,
+
+    /**
+     * Defines a {@code Stage} style with a Windows AppBar that is anchored to the Top edge.
+     * Only works on MS Windows.
+     */
+    APPBAR_TOP,
+
+    /**
+     * Defines a {@code Stage} style with a Windows AppBar that is anchored to the Left edge.
+     * Only works on MS Windows.
+     */
+    APPBAR_LEFT,
+
+    /**
+     * Defines a {@code Stage} style with a Windows AppBar that is anchored to the Bottom edge.
+     * Only works on MS Windows.
+     */
+    APPBAR_BOTTOM
 }
