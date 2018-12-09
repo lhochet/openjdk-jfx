@@ -1905,39 +1905,39 @@ JNIEXPORT void JNICALL Java_com_sun_glass_ui_win_WinWindow__1setBounds
 
         if (pWindow->IsAppBar())
         {
-            RECT r2;
-            SetRect(&r2, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
-
-            RECT r1 = AppBarSetDefaultSize(pWindow->GetAppBarBorder());
+            // set app bar wnd size
+            RECT curRect;
+            ::GetWindowRect(hWnd, &curRect);
+            fprintf(stderr, "curRect left = %d, top = %d, right = %d, bottom = %d \n", curRect.left, curRect.top, curRect.right, curRect.bottom);
 
             switch(pWindow->GetAppBarBorder())
             {
                 case GlassWindow::AppBarBorder::RIGHT:
                     xSet = 1;
-                    x = r2.right - w;
-                    y = r1.top;
-                    h = r1.bottom - r1.top;
+                    x = curRect.right - w;
+                    y = curRect.top;
+                    h = curRect.bottom - curRect.top;
                     break;
                 case GlassWindow::AppBarBorder::TOP:
                     xSet = 1;
-                    x = r2.left;
+                    x = curRect.left;
                     ySet = 1;
-                    y = r2.top;
-                    w = r2.right - r2.left;
+                    y = curRect.top;
+                    w = curRect.right - curRect.left;
                     break;
                 case GlassWindow::AppBarBorder::LEFT:
                     xSet = 1;
-                    x = r2.left;
-                    y = r2.top;
-                    y = r1.top;
-                    h = r1.bottom - r1.top;
+                    x = curRect.left;
+                    y = curRect.top;
+                    y = curRect.top;
+                    h = curRect.bottom - curRect.top;
                     break;
                 case GlassWindow::AppBarBorder::BOTTOM:
                     xSet = 1;
-                    x = r2.left;
+                    x = curRect.left;
                     ySet = 1;
-                    y = r2.bottom - h;
-                    w = r2.right - r2.left;
+                    y = curRect.bottom - h;
+                    w = curRect.right - curRect.left;
                     break;
             }
         }
