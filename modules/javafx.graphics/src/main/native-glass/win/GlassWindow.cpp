@@ -528,8 +528,6 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
 {
 //    fprintf(stdout, "msg = 0x%04x (%s)\n", msg, StringForMsg(msg));
 //    fflush(stdout);
-    fprintf(stderr, "msg = 0x%04x (%s)\n", msg, StringForMsg(msg));
-    fflush(stdout);
     MessageResult commonResult = BaseWnd::CommonWindowProc(msg, wParam, lParam);
     if (commonResult.processed) {
 //        fprintf(stdout, "   (handled by CommonWindowProc)\n");
@@ -542,11 +540,6 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
             // It's possible that move/size events are reported by the platform
             // before the peer listener is set. As a result, location/size are
             // not reported, so resending them from here.
-        {
-            int xPos = (int)(short) LOWORD(lParam);   // horizontal position 
-            int yPos = (int)(short) HIWORD(lParam);   // vertical position 
-             fprintf(stderr, "WM_SHOWWINDOW case, x = %d, y = %d \n", xPos, yPos);
-        }
             HandleMoveEvent(NULL);
             HandleSizeEvent(com_sun_glass_events_WindowEvent_RESIZE, NULL);
             // The call below may be restricted to WS_POPUP windows
