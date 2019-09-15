@@ -41,6 +41,14 @@
 #include "com_sun_glass_ui_Window_Level.h"
 #include "com_sun_glass_ui_win_WinWindow.h"
 
+// AppBar
+#include "Shellapi.h"
+
+
+#ifndef WM_LH_APPBAR_CALLBACK
+#define WM_LH_APPBAR_CALLBACK      (WM_USER + 0x02)
+#endif
+
 
 // Helper LEAVE_MAIN_THREAD for GlassWindow
 #define LEAVE_MAIN_THREAD_WITH_hWnd  \
@@ -62,7 +70,182 @@ HHOOK GlassWindow::sm_hCBTFilter = NULL;
 HWND GlassWindow::sm_grabWindow = NULL;
 static HWND activeTouchWindow = NULL;
 
-GlassWindow::GlassWindow(jobject jrefThis, bool isTransparent, bool isDecorated, bool isUnified, bool isChild, HWND parentOrOwner)
+// LH
+int appBarSize = 300;
+bool appBarCreated = false;
+bool appBarSizing = false;
+
+RECT AppBarSetDefaultSize(GlassWindow::AppBarBorder appBarBorder)
+{
+    RECT r;
+    SystemParametersInfo(SPI_GETWORKAREA, NULL, &r, 0);    
+    switch(appBarBorder)
+    {
+        case GlassWindow::AppBarBorder::RIGHT:
+            r.left = r.right - appBarSize;
+            break;
+        case GlassWindow::AppBarBorder::TOP:
+            r.bottom = r.top + appBarSize;
+            break;
+        case GlassWindow::AppBarBorder::LEFT:
+            r.right = r.left + appBarSize;
+            break;
+        case GlassWindow::AppBarBorder::BOTTOM:
+            r.top = r.bottom - appBarSize;
+            break;
+    }
+    return r;
+}
+ 
+UINT AppBarEdgeFor(GlassWindow::AppBarBorder appBarBorder)
+{
+    UINT ret;
+    switch(appBarBorder)
+    {
+        case GlassWindow::AppBarBorder::RIGHT:
+            ret = ABE_RIGHT;
+            break;
+        case GlassWindow::AppBarBorder::TOP:
+            ret = ABE_TOP;
+            break;
+        case GlassWindow::AppBarBorder::LEFT:
+            ret = ABE_LEFT;
+            break;
+        case GlassWindow::AppBarBorder::BOTTOM:
+            ret = ABE_BOTTOM;
+            break;
+        default:
+            ret = ABE_RIGHT;
+    }
+    return ret;
+}
+
+void AppBarActivate(HWND hWnd, BOOL value, GlassWindow::AppBarBorder appBarBorder)
+{
+    APPBARDATA pabd;
+
+    pabd.cbSize = sizeof(APPBARDATA); 
+    pabd.hWnd = hWnd;
+    pabd.uEdge = AppBarEdgeFor(appBarBorder);
+    pabd.lParam = (LPARAM) value;
+    SHAppBarMessage(ABM_ACTIVATE, &pabd );    
+}
+
+void AppBarCreate(HWND hWnd, int x, int y, int w, int h, GlassWindow::AppBarBorder appBarBorder)
+{
+    APPBARDATA pabd;
+    RECT       barRect;
+
+    SetRect( &barRect, x, y, x + w, y + h);
+
+    pabd.cbSize = sizeof(APPBARDATA); 
+    pabd.hWnd = hWnd;
+    pabd.uCallbackMessage = WM_LH_APPBAR_CALLBACK;
+    pabd.uEdge = AppBarEdgeFor(appBarBorder);;
+    pabd.rc =  barRect;
+    pabd.lParam = (LPARAM) FALSE;
+    SHAppBarMessage(ABM_NEW, &pabd );
+    
+}
+
+void AppBarQuerySetPos(HWND hWnd, int x, int y, int w, int h, GlassWindow::AppBarBorder appBarBorder)
+{
+    APPBARDATA pabd;
+    RECT       barRect;
+
+    SetRect( &barRect, x, y, x + w, y + h);
+
+    pabd.cbSize = sizeof(APPBARDATA); 
+    pabd.hWnd = hWnd;
+    pabd.uCallbackMessage = WM_LH_APPBAR_CALLBACK;
+    pabd.uEdge = AppBarEdgeFor(appBarBorder);;
+    pabd.rc =  barRect;
+    pabd.lParam = (LPARAM) FALSE;
+    
+    
+    SHAppBarMessage(ABM_QUERYPOS, &pabd );
+    
+    SHAppBarMessage(ABM_SETPOS, &pabd );
+}
+
+void AppBarCallback(HWND hWnd, WPARAM wParam, LPARAM lParam, GlassWindow::AppBarBorder appBarBorder)
+{
+    static HWND hwndZOrder = NULL;
+
+    APPBARDATA abd;
+    abd.cbSize = sizeof(abd);
+    abd.hWnd = hWnd;
+
+    switch (wParam)
+    {
+        // Notifies the appbar that the taskbar's autohide or always-on-top
+        // state has changed.  The appbar can use this to conform to the settings
+        // of the system taskbar.
+        case ABN_STATECHANGE:
+            break;
+
+        // Notifies the appbar when a full screen application is opening or
+        // closing.  When a full screen app is opening, the appbar must drop
+        // to the bottom of the Z-Order.  When the app is closing, we should
+        // restore our Z-order position.
+        case ABN_FULLSCREENAPP:
+            if (lParam)
+            {
+                // A full screen app is opening.  Move us to the bottom of the
+                // Z-Order.
+
+                // First get the window that we're underneath so we can correctly
+                // restore our position
+                hwndZOrder = GetWindow(hWnd, GW_HWNDPREV);
+
+                // Now move ourselves to the bottom of the Z-Order
+                SetWindowPos(hWnd, HWND_BOTTOM, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            else
+            {
+                // The app is closing.  Restore the Z-order
+                //POPTIONS pOpt = GetAppbarData(hwnd);
+                SetWindowPos(hWnd, /*pOpt->fOnTop ? HWND_TOPMOST :*/ hwndZOrder,
+                             0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+                hwndZOrder = NULL;
+            }
+            break;
+
+        // Notifies the appbar when an event has occured that may effect the
+        // appbar's size and position.  These events include changes in the
+        // taskbar's size, position, and visiblity as well as adding, removing,
+        // or resizing another appbar on the same side of the screen.
+        case ABN_POSCHANGED:
+        {
+            if (::IsIconic(hWnd)) {
+                return;
+            }
+
+            RECT rWindow;
+            ::GetWindowRect(hWnd, &rWindow);
+
+            APPBARDATA pabd;
+            pabd.cbSize = sizeof(APPBARDATA);
+            pabd.hWnd = hWnd;
+            pabd.rc = rWindow; //rc;
+            pabd.uEdge = AppBarEdgeFor(appBarBorder);;
+        }
+        break;
+    }
+}
+
+void AppBarRemove(HWND hWnd)
+{
+    APPBARDATA pabd;
+    pabd.cbSize = sizeof(APPBARDATA);
+    pabd.hWnd = hWnd;
+    SHAppBarMessage(ABM_REMOVE, &pabd );
+}
+
+GlassWindow::GlassWindow(jobject jrefThis, bool isTransparent, bool isDecorated, bool isUnified, bool isChild, bool isAppBar, AppBarBorder appBarBorder, HWND parentOrOwner)
     : BaseWnd(parentOrOwner),
     ViewContainer(),
     m_winChangingReason(Unknown),
@@ -74,6 +257,8 @@ GlassWindow::GlassWindow(jobject jrefThis, bool isTransparent, bool isDecorated,
     m_isTransparent(isTransparent),
     m_isDecorated(isDecorated),
     m_isUnified(isUnified),
+    m_isAppBar(isAppBar),
+    m_appBarBorder(appBarBorder),
     m_hMenu(NULL),
     m_alpha(255),
     m_isEnabled(true),
@@ -147,6 +332,17 @@ HWND GlassWindow::Create(DWORD dwStyle, DWORD dwExStyle, HMONITOR hMonitor, HWND
         }
     }
 
+
+    if (m_isAppBar)
+    {
+        RECT r = AppBarSetDefaultSize(m_appBarBorder);
+
+        x = r.left;
+        y = r.top;
+        w = r.right - r.left;
+        h = r.bottom - r.top;
+    }
+
     HWND hwnd = BaseWnd::Create(owner, x, y, w, h,
                                 TEXT(""), dwExStyle, dwStyle, NULL);
 
@@ -195,7 +391,6 @@ void GlassWindow::updateMinMaxSize(RECT &windowRect)
             windowRect.bottom = windowRect.top + m_maxSize.y;
         }
     }
-
 }
 
 void GlassWindow::SetFocusable(bool isFocusable)
@@ -323,6 +518,8 @@ char *StringForMsg(UINT msg) {
         case WM_TOUCH: return "WM_TOUCH";
         case WM_TIMER: return "WM_TIMER";
         case WM_GETOBJECT: return "WM_GETOBJECT";
+
+        case WM_LH_APPBAR_CALLBACK: return "WM_LH_APPBAR_CALLBACK";
     }
     return "Unknown";
 }
@@ -370,6 +567,21 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_SIZING:
             m_winChangingReason = WasSized;
             break;
+        case WM_ENTERSIZEMOVE:
+            if (m_isAppBar)
+            {
+                appBarSizing = true;
+            }
+            break;
+        case WM_EXITSIZEMOVE:
+            if (m_isAppBar)
+            {
+                appBarSizing = false;
+                RECT r;
+                ::GetWindowRect(GetHWND(), &r);
+                AppBarQuerySetPos(GetHWND(), r.left, r.top, r.right - r.left, r.bottom - r.top, m_appBarBorder);
+            }
+            break;
         case WM_SIZE:
             switch (wParam) {
                 case SIZE_RESTORED:
@@ -395,9 +607,13 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
             m_winChangingReason = WasMoved;
             break;
         case WM_MOVE:
+        {
+            int xPos = (int)(short) LOWORD(lParam);   // horizontal position 
+            int yPos = (int)(short) HIWORD(lParam);   // vertical position 
             if (!::IsIconic(GetHWND())) {
                 HandleMoveEvent(NULL);
             }
+        }
             break;
         case WM_WINDOWPOSCHANGING:
             HandleWindowPosChangingEvent((WINDOWPOS *)lParam);
@@ -611,6 +827,16 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
             if (lr) return lr;
             break;
         }
+            
+        case WM_NCHITTEST: // LH added
+            if (m_isAppBar)
+            {
+                return LHHandleHitTest(GetHWND(), wParam, lParam);
+            }
+            break;
+        case WM_LH_APPBAR_CALLBACK:
+            AppBarCallback(GetHWND(), wParam, lParam, m_appBarBorder);
+            return 0;
     }
 
     return ::DefWindowProc(GetHWND(), msg, wParam, lParam);
@@ -618,6 +844,11 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
 
 void GlassWindow::HandleCloseEvent()
 {
+    if (m_isAppBar)
+    {
+        AppBarRemove(GetHWND());
+    }
+
     JNIEnv* env = GetEnv();
 
     env->CallVoidMethod(m_grefThis, midNotifyClose);
@@ -626,6 +857,11 @@ void GlassWindow::HandleCloseEvent()
 
 void GlassWindow::HandleDestroyEvent()
 {
+    if (m_isAppBar)
+    {
+        AppBarRemove(GetHWND());
+    }
+
     JNIEnv* env = GetEnv();
 
     env->CallVoidMethod(m_grefThis, javaIDs.Window.notifyDestroy);
@@ -1158,6 +1394,35 @@ void GlassWindow::SetIcon(HICON hIcon)
     m_hIcon = hIcon;
 }
 
+UINT GlassWindow::LHHandleHitTest(HWND hwnd, WPARAM wParam, LPARAM lParam)
+{
+    LRESULT lHitTest;
+    int x = LOWORD(lParam);
+    int y = HIWORD(lParam);
+  
+    lHitTest = FORWARD_WM_NCHITTEST(hwnd, x, y, ::DefWindowProc);
+
+    if (lHitTest == HTLEFT && m_appBarBorder == RIGHT)
+    {
+        return HTLEFT;
+    }
+    else if (lHitTest == HTTOP && m_appBarBorder == BOTTOM)
+    {
+        return HTTOP;
+    }
+    else if (lHitTest == HTRIGHT && m_appBarBorder == LEFT)
+    {
+        return HTRIGHT;
+    }
+    else if (lHitTest == HTBOTTOM && m_appBarBorder == TOP)
+    {
+        return HTBOTTOM;
+    }
+
+    return HTCLIENT;
+}
+
+
 /*
  * JNI methods section
  *
@@ -1268,6 +1533,31 @@ JNIEXPORT jlong JNICALL Java_com_sun_glass_ui_win_WinWindow__1createWindow
             dwExStyle |= WS_EX_TOOLWINDOW;
         }
 
+        bool isAppBar = false;
+        GlassWindow::AppBarBorder appBarBorder = GlassWindow::AppBarBorder::NA;
+        
+        //AppBar
+        if (mask & com_sun_glass_ui_Window_APP_BAR_RIGHT) {
+            isAppBar = true;
+            appBarBorder = GlassWindow::AppBarBorder::RIGHT;
+        }
+        if (mask & com_sun_glass_ui_Window_APP_BAR_TOP) {
+            isAppBar = true;
+            appBarBorder = GlassWindow::AppBarBorder::TOP;
+        }
+        if (mask & com_sun_glass_ui_Window_APP_BAR_LEFT) {
+            isAppBar = true;
+            appBarBorder = GlassWindow::AppBarBorder::LEFT;
+        }
+        if (mask & com_sun_glass_ui_Window_APP_BAR_BOTTOM) {
+            isAppBar = true;
+            appBarBorder = GlassWindow::AppBarBorder::BOTTOM;
+        }
+            
+        if (isAppBar) {
+            dwExStyle |= WS_EX_TOOLWINDOW;
+        }
+
         if (mask & com_sun_glass_ui_Window_RIGHT_TO_LEFT) {
             dwExStyle |= WS_EX_NOINHERITLAYOUT | WS_EX_LAYOUTRTL;
         }
@@ -1278,6 +1568,8 @@ JNIEXPORT jlong JNICALL Java_com_sun_glass_ui_win_WinWindow__1createWindow
                 (mask & com_sun_glass_ui_Window_TITLED) != 0,
                 (mask & com_sun_glass_ui_Window_UNIFIED) != 0,
                 false,
+                isAppBar,
+                appBarBorder,
                 owner);
 
         HWND hWnd = pWindow->Create(dwStyle, dwExStyle, hMonitor, owner);
@@ -1332,7 +1624,7 @@ JNIEXPORT jlong JNICALL Java_com_sun_glass_ui_win_WinWindow__1createChildWindow
         dwExStyle = WS_EX_NOINHERITLAYOUT;
 
         GlassWindow *pWindow =
-            new GlassWindow(jThis, false, false, false, true, parent);
+            new GlassWindow(jThis, false, false, false, true, false, GlassWindow::AppBarBorder::NA, parent);
 
         HWND hWnd = pWindow->Create(dwStyle, dwExStyle, NULL, parent);
 
@@ -1624,6 +1916,44 @@ JNIEXPORT void JNICALL Java_com_sun_glass_ui_win_WinWindow__1setBounds
         if (!::IsWindow(hWnd)) return;
         GlassWindow *pWindow = GlassWindow::FromHandle(hWnd);
 
+        if (pWindow->IsAppBar())
+        {
+            // set app bar wnd size
+            RECT curRect;
+            ::GetWindowRect(hWnd, &curRect);
+
+            switch(pWindow->GetAppBarBorder())
+            {
+                case GlassWindow::AppBarBorder::RIGHT:
+                    xSet = 1;
+                    x = curRect.right - w;
+                    y = curRect.top;
+                    h = curRect.bottom - curRect.top;
+                    break;
+                case GlassWindow::AppBarBorder::TOP:
+                    xSet = 1;
+                    x = curRect.left;
+                    ySet = 1;
+                    y = curRect.top;
+                    w = curRect.right - curRect.left;
+                    break;
+                case GlassWindow::AppBarBorder::LEFT:
+                    xSet = 1;
+                    x = curRect.left;
+                    y = curRect.top;
+                    y = curRect.top;
+                    h = curRect.bottom - curRect.top;
+                    break;
+                case GlassWindow::AppBarBorder::BOTTOM:
+                    xSet = 1;
+                    x = curRect.left;
+                    ySet = 1;
+                    y = curRect.bottom - h;
+                    w = curRect.right - curRect.left;
+                    break;
+            }
+        }
+
         pWindow->UpdateInsets();
         RECT is = pWindow->GetInsets();
 
@@ -1636,6 +1966,16 @@ JNIEXPORT void JNICALL Java_com_sun_glass_ui_win_WinWindow__1setBounds
                        cw > 0 ? cw + is.right + is.left : r.right - r.left;
         int newH = h > 0 ? h :
                        ch > 0 ? ch + is.bottom + is.top : r.bottom - r.top;
+
+        if (pWindow->IsAppBar())
+        {
+            if (!appBarCreated)
+            {
+                AppBarCreate(hWnd, newX, newY, newW, newH, pWindow->GetAppBarBorder());
+                appBarCreated = true;
+            }
+            AppBarQuerySetPos(hWnd, newX, newY, newW, newH, pWindow->GetAppBarBorder());
+        }
 
         if (xSet || ySet) {
             ::SetWindowPos(hWnd, NULL, newX, newY, newW, newH,
