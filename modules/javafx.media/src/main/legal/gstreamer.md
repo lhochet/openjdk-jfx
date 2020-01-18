@@ -1,10 +1,10 @@
-## GStreamer v1.14.0
+## GStreamer v1.14.4
 
 ### GStreamer Notice
 <pre>
-You are receiving a copy of GStreamer, Version: 1.14.0 in either source or
+You are receiving a copy of GStreamer, Version: 1.14.4 in either source or
 object code in the JavaFX runtime or JavaFX SDK. The terms of the
-Oracle license do NOT apply to the GStreamer, Version: 1.14.0; it is
+Oracle license do NOT apply to the GStreamer, Version: 1.14.4; it is
 licensed under the following license, separately from the Oracle programs
 you receive. If you do not wish to install this library, you may delete
 this library:
@@ -14,11 +14,11 @@ this library:
    - On Windows systems: delete $(JAVA_HOME)\bin\gstreamer-lite.dll
 
 A copy of the Oracle modified GStreamer library source code is located
-in the following OpenJDK Mercurial repository:
+in the following OpenJDK git repository:
 
-   http://hg.openjdk.java.net/openjfx/jfx/rt
+   https://github.com/openjdk/jfx
 
-You can use Mercurial to clone the repository or you can browse the
+You can use git to clone the repository or you can browse the
 source using a web browser. The root directory of the GStreamer source
 code is here:
 

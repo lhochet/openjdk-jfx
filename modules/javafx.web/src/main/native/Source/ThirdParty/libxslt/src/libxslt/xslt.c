@@ -3725,7 +3725,7 @@ xsltGatherNamespaces(xsltStylesheetPtr style) {
             style->warnings++;
             } else if (URI == NULL) {
             xmlHashUpdateEntry(style->nsHash, ns->prefix,
-                (void *) ns->href, (xmlHashDeallocator)xmlFree);
+                (void *) ns->href, NULL);
 
 #ifdef WITH_XSLT_DEBUG_PARSING
             xsltGenericDebug(xsltGenericDebugContext,
@@ -6763,10 +6763,11 @@ xsltParseStylesheetFile(const xmlChar* filename) {
     int res;
 
     res = xsltCheckRead(sec, NULL, filename);
-    if (res == 0) {
-        xsltTransformError(NULL, NULL, NULL,
-         "xsltParseStylesheetFile: read rights for %s denied\n",
-                 filename);
+    if (res <= 0) {
+            if (res == 0)
+                xsltTransformError(NULL, NULL, NULL,
+                     "xsltParseStylesheetFile: read rights for %s denied\n",
+                                 filename);
         return(NULL);
     }
     }
