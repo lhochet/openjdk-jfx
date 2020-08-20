@@ -245,6 +245,57 @@ void AppBarRemove(HWND hWnd)
     SHAppBarMessage(ABM_REMOVE, &pabd );
 }
 
+void AppBarDisplayChanged(HWND hWnd, LPARAM lParam, GlassWindow::AppBarBorder appBarBorder)
+{
+    // fprintf(stdout, "AppBarDisplayChanged hwnd %d, ab %d\n", hWnd, appBarBorder);
+    // fflush(stdout);
+
+    int dcx = GET_X_LPARAM(lParam);
+    int dcy = GET_Y_LPARAM(lParam);
+    // fprintf(stdout, "WM_DISPLAYCHANGE dcx %d, dcy %d\n", dcx, dcy);
+
+    RECT r;
+    LONG x, y, cx, cy, sz;
+
+    ::GetWindowRect(hWnd, &r);
+    // fprintf(stdout, "WM_DISPLAYCHANGE left %d, right %d, top %d, bottom %d\n", r.left, r.right, r.top, r.bottom);
+    // fflush(stdout);
+    switch(appBarBorder)
+    {
+        case GlassWindow::AppBarBorder::TOP:
+            sz = r.bottom - r.top;
+            x = r.left;
+            y = r.top;
+            cx = dcx - r.left;
+            cy = sz;
+            break;
+        case GlassWindow::AppBarBorder::LEFT:
+            sz = r.right - r.left;
+            x = r.left;
+            y = r.top;
+            cx = sz;
+            cy = dcy - r.top;
+            break;
+        case GlassWindow::AppBarBorder::BOTTOM:
+            sz = r.bottom - r.top;
+            x = r.left;
+            y = dcy - sz;
+            cx = dcx - r.left;
+            cy = sz;
+            break;
+        case GlassWindow::AppBarBorder::RIGHT:
+        default:
+            sz = r.right - r.left;
+            x = dcx - sz;
+            y = r.top;
+            cx = sz;
+            cy = dcy - r.top;
+            break;
+    }
+    ::SetWindowPos(hWnd, HWND_TOP, x,  y, cx,  cy, SWP_NOACTIVATE);
+    AppBarQuerySetPos(hWnd, x,  y, cx,  cy, appBarBorder);
+}
+
 GlassWindow::GlassWindow(jobject jrefThis, bool isTransparent, bool isDecorated, bool isUnified, bool isChild, bool isAppBar, AppBarBorder appBarBorder, HWND parentOrOwner)
     : BaseWnd(parentOrOwner),
     ViewContainer(),
@@ -516,6 +567,8 @@ char *StringForMsg(UINT msg) {
         case WM_TIMER: return "WM_TIMER";
         case WM_GETOBJECT: return "WM_GETOBJECT";
 
+        case WM_DISPLAYCHANGE: return "WM_DISPLAYCHANGE";
+
         case WM_LH_APPBAR_CALLBACK: return "WM_LH_APPBAR_CALLBACK";
     }
     return "Unknown";
@@ -614,6 +667,16 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
             break;
         case WM_WINDOWPOSCHANGING:
             HandleWindowPosChangingEvent((WINDOWPOS *)lParam);
+            break;
+        case WM_DISPLAYCHANGE:
+            // fprintf(stdout, "WM_DISPLAYCHANGE\n");
+            // fflush(stdout);
+            if (m_isAppBar)
+            {
+                // fprintf(stdout, "WM_DISPLAYCHANGE & m_isAppBar\n");
+                // fflush(stdout);
+                AppBarDisplayChanged(GetHWND(), lParam, m_appBarBorder);
+            }
             break;
         case WM_CLOSE:
             HandleCloseEvent();
