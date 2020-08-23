@@ -150,6 +150,9 @@ void AppBarCreate(HWND hWnd, int x, int y, int w, int h, GlassWindow::AppBarBord
 
 void AppBarQuerySetPos(HWND hWnd, int x, int y, int w, int h, GlassWindow::AppBarBorder appBarBorder)
 {
+    // fprintf(stdout, "AppBarQuerySetPos hwnd %d, x %d, y %d, w %d, h %d, ab %d\n", hWnd, x, y, w, h, appBarBorder);
+    // fflush(stdout);
+
     APPBARDATA pabd;
     RECT       barRect;
 
@@ -294,6 +297,60 @@ void AppBarDisplayChanged(HWND hWnd, LPARAM lParam, GlassWindow::AppBarBorder ap
     }
     ::SetWindowPos(hWnd, HWND_TOP, x,  y, cx,  cy, SWP_NOACTIVATE);
     AppBarQuerySetPos(hWnd, x,  y, cx,  cy, appBarBorder);
+}
+
+void AppBarResizing(HWND hWnd, LPARAM lParam, GlassWindow::AppBarBorder appBarBorder, bool commitAppBarPos)
+{
+    // fprintf(stdout, "AppBarResizing\n");
+    // fflush(stdout);
+    int x = GET_X_LPARAM(lParam);
+    int y = GET_Y_LPARAM(lParam);
+    RECT r;
+    ::GetWindowRect(hWnd, &r);
+
+    // fprintf(stdout, "AppBarResizing  x %d y %d left %d top %d right %d bottom %d\n", x, y, r.left, r.top, r.right, r.bottom);
+    // fflush(stdout);
+
+    int X, Y, cx, cy;
+    switch (appBarBorder)
+    {
+        case GlassWindow::AppBarBorder::TOP:
+            X = r.left;
+            Y = r.top;
+            cx = r.right - r.left;
+            cy = y - r.top;
+            break;
+        case GlassWindow::AppBarBorder::LEFT:
+            X = r.left;
+            Y = r.top;
+            cx = x - r.left;
+            cy = r.bottom - r.top;
+            break;
+        case GlassWindow::AppBarBorder::BOTTOM:
+            X = r.left;
+            Y = r.top + y;
+            cx = r.right - r.left;
+            cy = r.bottom - (r.top + y);
+            break;                
+        case GlassWindow::AppBarBorder::RIGHT:
+        default:
+            X = r.left + x;
+            Y = r.top;
+            cx = r.right - (r.left + x);
+            cy = r.bottom - r.top;
+            break;
+    }
+    // fprintf(stdout, "AppBarResizing  %d %d %d %d border %d\n", X,  Y, cx,  cy, appBarBorder);
+    // fflush(stdout);
+    SetWindowPos(hWnd, HWND_TOP, X, Y, cx, cy, SWP_NOACTIVATE);
+    if (commitAppBarPos)
+    {
+        // fprintf(stdout, "AppBarResizing  commitAppBarPos\n");
+        // fflush(stdout);
+        AppBarQuerySetPos(hWnd, X,  Y, cx,  cy, appBarBorder);
+    }
+    // fprintf(stdout, "AppBarResizing  done\n");
+    // fflush(stdout);
 }
 
 GlassWindow::GlassWindow(jobject jrefThis, bool isTransparent, bool isDecorated, bool isUnified, bool isChild, bool isAppBar, AppBarBorder appBarBorder, HWND parentOrOwner)
@@ -784,6 +841,15 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
             }
             // ... and fall through for other mouse events
         case WM_LBUTTONUP:
+            if (msg == WM_LBUTTONUP && appBarSizing)
+            {
+                // fprintf(stdout, "WM_LBUTTONUP && appBarSizing\n");
+                // fflush(stdout);
+                ReleaseCapture();
+                appBarSizing = false;
+                AppBarResizing(GetHWND(), lParam, m_appBarBorder, true);
+                break;
+            }            
         case WM_LBUTTONDBLCLK:
         case WM_RBUTTONUP:
         case WM_RBUTTONDBLCLK:
@@ -793,6 +859,11 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_MOUSEHWHEEL:
         case WM_MOUSELEAVE:
         case WM_MOUSEMOVE:
+            if (msg == WM_MOUSEMOVE && appBarSizing) 
+            {
+                AppBarResizing(GetHWND(), lParam, m_appBarBorder, false);
+                return 0;
+            }
             if (IsEnabled()) {
                 if (msg == WM_MOUSELEAVE && GetDelegateWindow()) {
                     // Skip generating MouseEvent.EXIT when entering FullScreen
@@ -854,6 +925,28 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
             }
             break;
         case WM_NCLBUTTONDOWN:
+            if (m_isAppBar && (wParam == HTLEFT || wParam == HTRIGHT || wParam == HTTOP || wParam == HTBOTTOM))
+            {
+                // fprintf(stdout, "WM_NCLBUTTONDOWN\n");
+                // fflush(stdout);
+                HCURSOR hr;
+                switch (wParam)
+                {
+                    case HTRIGHT:
+                    case HTLEFT:
+                    default:
+                        hr = LoadCursor(NULL, IDC_SIZEWE);
+                        break;
+                    case HTTOP:
+                    case HTBOTTOM:
+                        hr = LoadCursor(NULL, IDC_SIZENS);
+                        break;
+                }
+                ::SetCursor(hr);
+                SetCapture(GetHWND());
+                appBarSizing = true;
+                break;
+            }
         case WM_NCMBUTTONDOWN:
         case WM_NCRBUTTONDOWN:
         case WM_NCXBUTTONDOWN:
@@ -881,6 +974,35 @@ LRESULT GlassWindow::WindowProc(UINT msg, WPARAM wParam, LPARAM lParam)
             if (lr) return lr;
             break;
         }
+        case WM_SETCURSOR:
+            // fprintf(stdout, "LH WM_SETCURSOR\n");
+            // fflush(stdout);
+            if (m_isAppBar)
+            {
+                // fprintf(stdout, "LH WM_SETCURSOR LOWORD(lParam) %d\n", LOWORD(lParam));
+                // fflush(stdout);
+                switch (LOWORD(lParam))
+                {
+                    case HTLEFT:
+                    case HTRIGHT:
+                        ::SetCursor(LoadCursor(0, IDC_SIZEWE));
+                        // fprintf(stdout, "LH WM_SETCURSOR HTLEFT|HTRIGHT\n");
+                        // fflush(stdout);
+                        return TRUE;
+                    case HTTOP:
+                    case HTBOTTOM:
+                        ::SetCursor(LoadCursor(0, IDC_SIZENS));
+                        // fprintf(stdout, "LH WM_SETCURSOR HTTOP|HTBOTTOM\n");
+                        // fflush(stdout);
+                        return TRUE;
+                    //case HTCLIENT: actually handled by BaseWnd::CommonWindowProc
+                    default:
+                        ::SetCursor(LoadCursor(0, IDC_ARROW));                
+                        fprintf(stdout, "LH WM_SETCURSOR default\n");
+                        fflush(stdout);
+                }
+            }
+            break;
             
         case WM_NCHITTEST: // LH added
             if (m_isAppBar)
@@ -1451,28 +1573,72 @@ void GlassWindow::SetIcon(HICON hIcon)
 UINT GlassWindow::LHHandleHitTest(HWND hwnd, WPARAM wParam, LPARAM lParam)
 {
     LRESULT lHitTest;
-    int x = LOWORD(lParam);
-    int y = HIWORD(lParam);
+    int x = GET_X_LPARAM(lParam);
+    int y = GET_Y_LPARAM(lParam);
   
     lHitTest = FORWARD_WM_NCHITTEST(hwnd, x, y, ::DefWindowProc);
+    // fprintf(stdout, "LHHandleHitTest %d\n", lHitTest);
+    // fflush(stdout);
 
-    if (lHitTest == HTLEFT && m_appBarBorder == RIGHT)
+    RECT rWindow;
+    ::GetWindowRect(hwnd, &rWindow);
+    // fprintf(stdout, "LHHandleHitTest %d %d\n", x, y);
+    // fprintf(stdout, "LHHandleHitTest %d %d %d %d\n", rWindow.bottom, rWindow.left, rWindow.right, rWindow.top);
+    // fprintf(stdout, "LHHandleHitTest border %d\n", m_appBarBorder);
+    // fprintf(stdout, "LHHandleHitTest transparent %d\n", m_isTransparent);
+    // fflush(stdout);
+
+    // transparent == no border, so create a 'virtual' one
+    if (m_isAppBar && m_isTransparent)
     {
-        return HTLEFT;
+        int pbsz = 3; // pseudo border size
+        if (x >= rWindow.left && x <= (rWindow.left + pbsz) && m_appBarBorder == RIGHT)
+        {
+            // fprintf(stdout, "LHHandleHitTest HTLEFT\n");
+            // fflush(stdout);
+            return HTLEFT;
+        }
+        else if (y >= rWindow.top && y <= (rWindow.top + pbsz) && m_appBarBorder == BOTTOM)
+        {
+            // fprintf(stdout, "LHHandleHitTest HTTOP\n");
+            // fflush(stdout);
+            return HTTOP;
+        }
+        else if (x >= (rWindow.right - pbsz) && x <= rWindow.right && m_appBarBorder == LEFT)
+        {
+            // fprintf(stdout, "LHHandleHitTest HTRIGHT\n");
+            // fflush(stdout);
+            return HTRIGHT;
+        }
+        else if (y >= (rWindow.bottom - pbsz) && y <= rWindow.bottom && m_appBarBorder == TOP)
+        {
+            // fprintf(stdout, "LHHandleHitTest HTBOTTOM\n");
+            // fflush(stdout);
+            return HTBOTTOM;
+        }
     }
-    else if (lHitTest == HTTOP && m_appBarBorder == BOTTOM)
+    else
     {
-        return HTTOP;
-    }
-    else if (lHitTest == HTRIGHT && m_appBarBorder == LEFT)
-    {
-        return HTRIGHT;
-    }
-    else if (lHitTest == HTBOTTOM && m_appBarBorder == TOP)
-    {
-        return HTBOTTOM;
+        if (lHitTest == HTLEFT && m_appBarBorder == RIGHT)
+        {
+            return HTLEFT;
+        }
+        else if (lHitTest == HTTOP && m_appBarBorder == BOTTOM)
+        {
+            return HTTOP;
+        }
+        else if (lHitTest == HTRIGHT && m_appBarBorder == LEFT)
+        {
+            return HTRIGHT;
+        }
+        else if (lHitTest == HTBOTTOM && m_appBarBorder == TOP)
+        {
+            return HTBOTTOM;
+        }
     }
 
+    // fprintf(stdout, "LHHandleHitTest HTCLIENT\n");
+    // fflush(stdout);
     return HTCLIENT;
 }
 
