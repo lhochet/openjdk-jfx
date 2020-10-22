@@ -410,6 +410,13 @@ ext.IS_RETAIN_PACKAGER_TESTS = Boolean.parseBoolean(RETAIN_PACKAGER_TESTS)
 defineProperty("TEST_PACKAGER_DMG", "false")
 ext.IS_TEST_PACKAGER_DMG = Boolean.parseBoolean(TEST_PACKAGER_DMG)
 
+defineProperty("STATIC_BUILD", "false")
+ext.IS_STATIC_BUILD = Boolean.parseBoolean(STATIC_BUILD)
+
+if (IS_STATIC_BUILD && IS_COMPILE_MEDIA) {
+    throw new GradleException("Can not have COMPILE_MEDIA when STATIC_BUILD is enabled");
+}
+
 // BUILD_TOOLS_DOWNLOAD_SCRIPT specifies a path of a gradle script which downloads
 // required build tools.
 defineProperty("BUILD_TOOLS_DOWNLOAD_SCRIPT", "")
@@ -2443,14 +2450,28 @@ project(":swing") {
 
     sourceSets {
         main
-        //shims // no test shims needed
-        test
+        shims {
+            java {
+                compileClasspath += sourceSets.main.output
+                runtimeClasspath += sourceSets.main.output
+            }
+        }
+        test {
+            java {
+                compileClasspath += sourceSets.shims.output
+                runtimeClasspath += sourceSets.shims.output
+            }
+        }
     }
 
     project.ext.moduleSourcePath = defaultModuleSourcePath
     project.ext.moduleSourcePathShim = defaultModuleSourcePathShim
 
     commonModuleSetup(project, [ 'base', 'graphics', 'swing' ])
+
+    sourceSets.shims.java {
+        exclude("com/sun/javafx/embed/swing/oldimpl/**")
+    }
 
     dependencies {
     }
@@ -3351,15 +3372,7 @@ project(":media") {
                              "CC=${mediaProperties.compiler}", "AR=${mediaProperties.ar}", "LINKER=${mediaProperties.linker}")
 
                         if (t.name == "win") {
-                            Map winEnv = new HashMap(WINDOWS_NATIVE_COMPILE_ENVIRONMENT)
-
-                            String sdkDir = System.getenv("BASECLASSES_SDK_DIR");
-                            if (sdkDir == null) {
-                                sdkDir = "C:/Program Files/Microsoft SDKs/Windows/v7.1" // Default value
-                                winEnv["BASECLASSES_SDK_DIR"] = sdkDir
-                            }
-                            environment(winEnv)
-
+                            environment(WINDOWS_NATIVE_COMPILE_ENVIRONMENT)
                             args("RESOURCE=${nativeOutputDir}/${buildType}/${WIN.media.fxpluginsRcFile}")
                         }
                     }
@@ -3904,6 +3917,9 @@ project(":web") {
                 exec {
                     workingDir("$webkitOutputDir")
                     def cmakeArgs = "-DENABLE_TOOLS=1"
+                    if (IS_STATIC_BUILD) {
+                        cmakeArgs = " $cmakeArgs -DSTATIC_BUILD=1 -DUSE_THIN_ARCHIVES=OFF";
+                    }
                     cmakeArgs = " $cmakeArgs -DCMAKE_C_COMPILER='${webkitProperties.compiler}'"
                     if (t.name == "win") {
                         // To enable ninja build on Windows
@@ -3920,6 +3936,9 @@ project(":web") {
                         // TODO: Use cflags and ldflags from all platforms
                         def cFlags = webkitProperties.ccFlags?.join(' ') ?: ''
                         def lFlags = webkitProperties.linkFlags?.join(' ') ?: ''
+                        if (IS_STATIC_BUILD) {
+                            cFlags = " $cFlags -DSTATIC_BUILD=1";
+                        }
                         // -shared flag should be omitted while creating executable.
                         def exeFlags = webkitProperties.linkFlags?.join(' ')?.replace('-shared', '') ?: ''
                         cmakeArgs = "$cmakeArgs -DCMAKE_C_FLAGS='${cFlags}' -DCMAKE_CXX_FLAGS='${cFlags}'"
